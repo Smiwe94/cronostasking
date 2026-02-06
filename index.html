@@ -79,6 +79,7 @@
         const MSG_REQUEST_INIT = 'REQUEST_INIT'; // Ventana -> Panel (Pedir datos al abrir)
         const MSG_ACTION_UPDATE = 'ACTION_UPDATE'; // Ventana -> Panel (Usuario editó/creó tarea)
         const MSG_ACTION_DELETE = 'ACTION_DELETE'; // Ventana -> Panel (Usuario borró tarea)
+        const MSG_DIALOG_READY = 'DIALOG_READY'; // Ventana -> Panel (Diálogo listo para recibir estado)
 
         // --- Utilidad para Parsear Fechas en Local ---
         const parseLocalDate = (dateStr) => {
@@ -453,16 +454,40 @@
             const [isSyncing, setIsSyncing] = useState(false);
             
             const [isPopupMode, setIsPopupMode] = useState(false);
+            const [dialogConnected, setDialogConnected] = useState(false);
             const channelRef = useRef(null);
             const dialogRef = useRef(null);
 
             const fileInputRef = useRef(null);
 
+            const broadcastState = useCallback(() => {
+                const payload = { tasks, lastSyncAt, syncStatus };
+                if (channelRef.current) {
+                    channelRef.current.postMessage({
+                        type: MSG_SYNC_STATE,
+                        payload
+                    });
+                }
+                if (dialogRef.current) {
+                    try {
+                        dialogRef.current.messageChild(JSON.stringify({
+                            type: MSG_SYNC_STATE,
+                            payload
+                        }));
+                    } catch (error) {
+                        console.error('No se pudo enviar mensaje al diálogo', error);
+                    }
+                }
+            }, [tasks, lastSyncAt, syncStatus]);
+
             const handleIncomingMessage = useCallback((message) => {
                 if (!message || !message.type) return;
                 const { type, payload } = message;
 
-                if (type === MSG_SYNC_STATE) {
+                if (type === MSG_DIALOG_READY && !isPopupMode) {
+                    setDialogConnected(true);
+                    broadcastState();
+                } else if (type === MSG_SYNC_STATE) {
                     // El Panel envió el estado actualizado a la Ventana
                     setTasks(payload.tasks);
                     setLastSyncAt(payload.lastSyncAt ? new Date(payload.lastSyncAt) : null);
@@ -477,35 +502,7 @@
                     // La Ventana pide borrar
                     performDelete(payload, true);
                 }
-            }, [isPopupMode]);
-
-            const sendToParent = useCallback((message) => {
-                if (window.Office && Office.context && Office.context.ui && typeof Office.context.ui.messageParent === 'function') {
-                    Office.context.ui.messageParent(JSON.stringify(message));
-                    return true;
-                }
-                if (channelRef.current) {
-                    channelRef.current.postMessage(message);
-                    return true;
-                }
-                return false;
-            }, []);
-
-            const broadcastState = useCallback(() => {
-                const payload = { tasks, lastSyncAt, syncStatus };
-                if (channelRef.current) {
-                    channelRef.current.postMessage({
-                        type: MSG_SYNC_STATE,
-                        payload
-                    });
-                }
-                if (dialogRef.current) {
-                    dialogRef.current.messageChild(JSON.stringify({
-                        type: MSG_SYNC_STATE,
-                        payload
-                    }));
-                }
-            }, [tasks, lastSyncAt, syncStatus]);
+            }, [broadcastState, isPopupMode]);
 
             useEffect(() => {
                 const urlParams = new URLSearchParams(window.location.search);
@@ -514,15 +511,12 @@
 
                 const supportsDialogMessaging = popupMode && window.Office && Office.context && Office.context.ui && typeof Office.context.ui.messageParent === 'function';
 
-                const ensureBroadcastChannel = () => {
-                    if (channelRef.current) return;
-                    channelRef.current = new BroadcastChannel(CHANNEL_NAME);
-                    channelRef.current.onmessage = (event) => handleIncomingMessage(event.data);
-                };
-
                 if (!popupMode || !supportsDialogMessaging) {
                     // Configurar Canal para comunicación ventana <-> panel
-                    ensureBroadcastChannel();
+                    channelRef.current = new BroadcastChannel(CHANNEL_NAME);
+                    channelRef.current.onmessage = (event) => {
+                        handleIncomingMessage(event.data);
+                    };
                 }
 
                 if (supportsDialogMessaging) {
@@ -535,11 +529,11 @@
                                 console.error('Mensaje de diálogo inválido', error);
                             }
                         });
-                        sendToParent({ type: MSG_REQUEST_INIT });
+                        Office.context.ui.messageParent(JSON.stringify({ type: MSG_DIALOG_READY }));
+                        Office.context.ui.messageParent(JSON.stringify({ type: MSG_REQUEST_INIT }));
                     });
-                } else if (popupMode) {
-                    ensureBroadcastChannel();
-                    sendToParent({ type: MSG_REQUEST_INIT });
+                } else if (popupMode && channelRef.current) {
+                    channelRef.current.postMessage({ type: MSG_REQUEST_INIT });
                 }
 
                 if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) setDarkMode(true);
@@ -554,7 +548,7 @@
                 }
 
                 return () => channelRef.current?.close();
-            }, [handleIncomingMessage, sendToParent]);
+            }, [handleIncomingMessage]);
 
             useEffect(() => { if (darkMode) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }, [darkMode]);
             
@@ -572,7 +566,11 @@
             const handleSaveTask = (taskData, fromRemote = false) => {
                 if (isPopupMode) {
                     // Modo Popup: Enviar al panel, no guardar directo en Excel
-                    sendToParent({ type: MSG_ACTION_UPDATE, payload: taskData });
+                    if (window.Office && Office.context && Office.context.ui && typeof Office.context.ui.messageParent === 'function') {
+                        Office.context.ui.messageParent(JSON.stringify({ type: MSG_ACTION_UPDATE, payload: taskData }));
+                    } else if (channelRef.current) {
+                        channelRef.current.postMessage({ type: MSG_ACTION_UPDATE, payload: taskData });
+                    }
                     updateLocalState(taskData); // Actualización optimista
                 } else {
                     // Modo Panel: Guardar y notificar
@@ -600,7 +598,11 @@
                 if (!taskToDelete) return;
                 
                 if (isPopupMode) {
-                    sendToParent({ type: MSG_ACTION_DELETE, payload: taskToDelete.id });
+                    if (window.Office && Office.context && Office.context.ui && typeof Office.context.ui.messageParent === 'function') {
+                        Office.context.ui.messageParent(JSON.stringify({ type: MSG_ACTION_DELETE, payload: taskToDelete.id }));
+                    } else if (channelRef.current) {
+                        channelRef.current.postMessage({ type: MSG_ACTION_DELETE, payload: taskToDelete.id });
+                    }
                     performDelete(taskToDelete.id);
                 } else {
                     performDelete(taskToDelete.id);
@@ -620,9 +622,7 @@
                 const url = window.location.href.split('?')[0] + '?mode=popup';
 
                 if (window.Office && Office.context && Office.context.ui && typeof Office.context.ui.displayDialogAsync === 'function') {
-                    const isWeb = Office.context.platform === Office.PlatformType.OfficeOnline;
-                    const dialogOptions = isWeb ? { height: 60, width: 60, displayInIframe: true } : { height: 60, width: 60 };
-                    Office.context.ui.displayDialogAsync(url, dialogOptions, (asyncResult) => {
+                    const handleDialogResult = (asyncResult) => {
                         if (asyncResult.status !== Office.AsyncResultStatus.Succeeded) {
                             console.error(asyncResult.error);
                             addToast('No se pudo abrir el diálogo.');
@@ -640,8 +640,16 @@
                         });
                         dialogRef.current.addEventHandler(Office.EventType.DialogEvent, () => {
                             dialogRef.current = null;
+                            setDialogConnected(false);
                         });
-                        dialogRef.current.messageChild(JSON.stringify({ type: MSG_SYNC_STATE, payload: { tasks, lastSyncAt, syncStatus } }));
+                    };
+
+                    Office.context.ui.displayDialogAsync(url, { height: 70, width: 70, displayInIframe: false }, (asyncResult) => {
+                        if (asyncResult.status === Office.AsyncResultStatus.Succeeded) {
+                            handleDialogResult(asyncResult);
+                            return;
+                        }
+                        Office.context.ui.displayDialogAsync(url, { height: 70, width: 70, displayInIframe: true }, handleDialogResult);
                     });
                     return;
                 }
@@ -801,7 +809,7 @@
                             <div className="flex items-center gap-4">
                                 <span className={`flex items-center gap-1.5 ${syncStatus.includes('Error') ? 'text-red-500' : 'text-green-600'}`}>
                                     <span className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-yellow-400 animate-pulse' : 'bg-current'}`}></span>
-                                    {syncStatus || 'Listo'}
+                                    {syncStatus || 'Listo'}{dialogConnected && !isPopupMode ? ' · Ventana conectada' : ''}
                                 </span>
                                 <span>Ult. Sync: {lastSyncLabel}</span>
                             </div>
