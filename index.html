@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cronograma de Trabajo</title>
+    <title>Cronograma de Trabajo | SPRC</title>
     
     <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -508,8 +508,8 @@
 
                 const supportsDialogMessaging = popupMode && window.Office && Office.context && Office.context.ui && typeof Office.context.ui.messageParent === 'function';
 
-                if (!popupMode || !supportsDialogMessaging) {
-                    // Configurar Canal para comunicación ventana <-> panel
+                if (window.BroadcastChannel) {
+                    // Canal de respaldo siempre disponible para evitar perder eventos
                     channelRef.current = new BroadcastChannel(CHANNEL_NAME);
                     channelRef.current.onmessage = (event) => {
                         handleIncomingMessage(event.data);
@@ -529,7 +529,9 @@
                         Office.context.ui.messageParent(JSON.stringify({ type: MSG_DIALOG_READY }));
                         Office.context.ui.messageParent(JSON.stringify({ type: MSG_REQUEST_INIT }));
                     });
-                } else if (popupMode && channelRef.current) {
+                }
+
+                if (popupMode && channelRef.current) {
                     channelRef.current.postMessage({ type: MSG_REQUEST_INIT });
                 }
 
@@ -779,7 +781,7 @@
                                     {isPopupMode ? <Icons.Monitor /> : <Icons.CheckSquare />}
                                 </div>
                                 <div>
-                                    <h1 className="text-lg font-bold text-gray-800 dark:text-white leading-tight">Cronograma de Trabajo</h1>
+                                    <h1 className="text-lg font-bold text-gray-800 dark:text-white leading-tight">Cronograma de Trabajo | SPRC</h1>
                                     <p className="text-xs text-gray-500 dark:text-gray-400">
                                         {isPopupMode ? 'Modo Remoto (Controlando Excel)' : officeReady ? 'Conectado a Excel Online' : 'Modo Local'}
                                     </p>
