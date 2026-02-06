@@ -451,7 +451,6 @@
             const [syncStatus, setSyncStatus] = useState('');
             const [lastSyncAt, setLastSyncAt] = useState(null);
             const [autoSync, setAutoSync] = useState(true);
-            const [autoRefresh, setAutoRefresh] = useState(true);
             const [isSyncing, setIsSyncing] = useState(false);
             
             const [isPopupMode, setIsPopupMode] = useState(false);
@@ -675,10 +674,10 @@
                 handleSaveTask(updatedTask);
             };
 
-            const loadFromExcelAddin = async ({ silent = false, source = 'manual' } = {}) => {
-                if (!officeReady || isPopupMode || isSyncing) return;
+            const loadFromExcelAddin = async () => {
+                if (!officeReady || isPopupMode) return;
                 setIsSyncing(true);
-                setSyncStatus(silent ? 'Actualizando desde Excel...' : 'Leyendo Excel...');
+                setSyncStatus('Leyendo Excel...');
                 try {
                     await Excel.run(async (context) => {
                         let sheet = context.workbook.worksheets.getItemOrNullObject('Cronograma');
@@ -705,9 +704,9 @@
                             .map(r => mapRowToTask(r, headerMap));
 
                         setTasks(parsedTasks);
-                        setSyncStatus(source === 'auto' ? 'Actualizado desde Excel' : 'Sincronizado');
+                        setSyncStatus('Sincronizado');
                         setLastSyncAt(new Date());
-                        if (!silent) addToast("Datos cargados de Excel");
+                        addToast("Datos cargados de Excel");
                     });
                 } catch (error) {
                     console.error(error);
@@ -755,16 +754,6 @@
                 return () => clearTimeout(timeout);
             }, [tasks, officeReady, autoSync, isPopupMode]);
 
-            useEffect(() => {
-                if (!officeReady || !autoRefresh || isPopupMode) return;
-                const interval = setInterval(() => {
-                    if (!isSyncing && !modalOpen) {
-                        loadFromExcelAddin({ silent: true, source: 'auto' });
-                    }
-                }, 15000);
-                return () => clearInterval(interval);
-            }, [officeReady, autoRefresh, isPopupMode, isSyncing, modalOpen, loadFromExcelAddin]);
-
             const filteredTasks = tasks.filter(t => filter === 'Todos' || t.estado === filter);
             const lastSyncLabel = lastSyncAt ? lastSyncAt.toLocaleTimeString() : '--:--';
 
@@ -799,7 +788,7 @@
 
                                 {!isPopupMode && (
                                     <>
-                                        <button onClick={() => loadFromExcelAddin({ source: 'manual' })} disabled={!officeReady} className={`p-2 rounded transition ${officeReady ? 'hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300' : 'text-gray-300 cursor-not-allowed'}`} title="Cargar de Excel"><Icons.Download /></button>
+                                        <button onClick={loadFromExcelAddin} disabled={!officeReady} className={`p-2 rounded transition ${officeReady ? 'hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300' : 'text-gray-300 cursor-not-allowed'}`} title="Cargar de Excel"><Icons.Download /></button>
                                         <button onClick={saveToExcelAddin} disabled={!officeReady} className={`p-2 rounded transition ${officeReady ? 'hover:bg-gray-100 dark:hover:bg-slate-700 text-brand-600' : 'text-gray-300 cursor-not-allowed'}`} title="Forzar Guardado"><Icons.Save /></button>
                                     </>
                                 )}
@@ -828,10 +817,6 @@
                                 <label className="flex items-center gap-2 cursor-pointer hover:text-brand-600 transition">
                                     <input type="checkbox" checked={autoSync} onChange={(e) => setAutoSync(e.target.checked)} disabled={!officeReady} className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
                                     <span>Auto-guardar en Excel</span>
-                                </label>
-                                <label className="flex items-center gap-2 cursor-pointer hover:text-brand-600 transition">
-                                    <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} disabled={!officeReady} className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
-                                    <span>Auto-actualizar desde Excel</span>
                                 </label>
                             )}
                         </div>
