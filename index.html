@@ -4,23 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cronograma de Trabajo</title>
-
+    
     <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-
+    
     <!-- Babel para JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
+    
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-
+    
     <!-- SheetJS para manejar Excel -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
 
     <!-- Office.js para Excel en OneDrive -->
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-
+    
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
@@ -44,7 +44,7 @@
             }
         }
     </script>
-
+    
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
@@ -53,13 +53,13 @@
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
         .dark .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #475569; }
-
+        
         /* Animaciones suaves */
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideUp { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         .animate-fade-in { animation: fadeIn 0.3s ease-out; }
         .animate-fade-in-up { animation: slideUp 0.3s ease-out; }
-
+        
         /* Toast Animation */
         @keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         .toast-enter { animation: slideInRight 0.3s ease-out forwards; }
@@ -69,16 +69,17 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, useMemo } = React;
+        const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
         // --- CANALES DE COMUNICACIÓN (BROADCAST CHANNEL) ---
         // Esto permite que el Popup hable con el Panel de Excel
         const CHANNEL_NAME = 'cronos_sync_channel';
-
+        
         const MSG_SYNC_STATE = 'SYNC_STATE'; // Panel -> Ventana (Enviar datos actuales)
         const MSG_REQUEST_INIT = 'REQUEST_INIT'; // Ventana -> Panel (Pedir datos al abrir)
         const MSG_ACTION_UPDATE = 'ACTION_UPDATE'; // Ventana -> Panel (Usuario editó/creó tarea)
         const MSG_ACTION_DELETE = 'ACTION_DELETE'; // Ventana -> Panel (Usuario borró tarea)
+        const MSG_DIALOG_READY = 'DIALOG_READY'; // Ventana -> Panel (Diálogo listo para recibir estado)
 
         // --- Utilidad para Parsear Fechas en Local ---
         const parseLocalDate = (dateStr) => {
@@ -168,12 +169,12 @@
                 </div>
             );
 
-            const { dates, minDate } = useMemo(() => {
+            const { dates, minDate, maxDate } = useMemo(() => {
                 if (tasks.length === 0) return { dates: [], minDate: new Date(), maxDate: new Date() };
-
+                
                 const allDates = tasks.flatMap(t => [parseLocalDate(t.fechaInicio), parseLocalDate(t.fechaFin)]);
                 const validDates = allDates.filter(d => !isNaN(d.getTime()));
-
+                
                 if (validDates.length === 0) {
                      const now = new Date();
                      return { dates: [], minDate: now, maxDate: now };
@@ -181,7 +182,7 @@
 
                 const min = new Date(Math.min(...validDates));
                 const max = new Date(Math.max(...validDates));
-
+                
                 min.setDate(min.getDate() - 3);
                 max.setDate(max.getDate() + 7);
 
@@ -205,7 +206,7 @@
                             {dates.length > 0 && `${dates[0].toLocaleDateString()} - ${dates[dates.length-1].toLocaleDateString()}`}
                         </div>
                     </div>
-
+                    
                     <div className="flex-1 overflow-auto custom-scrollbar relative">
                         <div style={{ width: `${Math.max(dates.length * dayWidth + 200, 100)}px`, minWidth: '100%' }} className="relative">
                             {/* Cabecera */}
@@ -234,18 +235,18 @@
                                 {tasks.map((task) => {
                                     const start = parseLocalDate(task.fechaInicio);
                                     const end = parseLocalDate(task.fechaFin);
-                                    if (isNaN(start) || isNaN(end)) return null;
+                                    if(isNaN(start) || isNaN(end)) return null;
 
                                     const durationDays = Math.max(Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1, 1);
                                     const offsetDays = Math.ceil((start - minDate) / (1000 * 60 * 60 * 24));
-
+                                    
                                     const leftPos = offsetDays * dayWidth;
                                     const widthPx = durationDays * dayWidth;
 
                                     // Colores base (fondo claro) y colores de relleno (fuerte)
                                     let baseColor = 'bg-blue-100 dark:bg-blue-900/30';
                                     let progressColor = 'bg-brand-500';
-
+                                    
                                     if (task.estado === 'Completado') {
                                         baseColor = 'bg-green-100 dark:bg-green-900/30';
                                         progressColor = 'bg-green-500';
@@ -266,18 +267,18 @@
 
                                             <div className="flex-1 relative py-2">
                                                 {/* Contenedor de la barra (Background - Duración total) */}
-                                                <div
+                                                <div 
                                                     className={`absolute top-2 h-8 rounded-md shadow-sm border border-white/20 overflow-hidden cursor-pointer ${baseColor}`}
                                                     style={{ left: `${leftPos}px`, width: `${widthPx}px` }}
                                                     onClick={() => onEdit(task)}
                                                     title={`${task.titulo}: ${task.progreso}% completado`}
                                                 >
                                                     {/* Barra de Progreso (Fill - % completado) */}
-                                                    <div
+                                                    <div 
                                                         className={`h-full ${progressColor} transition-all duration-500 ease-out`}
                                                         style={{ width: `${task.progreso}%` }}
                                                     ></div>
-
+                                                    
                                                     {/* Texto superpuesto */}
                                                     <div className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-gray-700 dark:text-white drop-shadow-md whitespace-nowrap px-2">
                                                          {widthPx > 40 && `${task.progreso}%`}
@@ -355,9 +356,9 @@
                                     ))}
                                     {formData.subprocesos.length === 0 && <p className="text-sm text-gray-400 italic text-center py-2">No hay subprocesos</p>}
                                 </div>
-                                <div className="flex gap-2"><input type="text" value={newSubprocess} onChange={(e) => setNewSubprocess(e.target.value)} placeholder="Nuevo checkpoint..." className="flex-1 p-2 border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-sm" onKeyPress={(e) => e.key === 'Enter' && handleAddSubprocess(e)} /><button type="button" onClick={handleAddSubprocess} className="px-3 py-2 bg-gray-200 dark:bg-slate-600 hover:bg-gray-300 dark:hover:bg-slate-500 rounded text-sm font-medium transition">Añadir</button></div>
+                                <div className="flex gap-2"><input type="text" value={newSubprocess} onChange={(e) => setNewSubprocess(e.target.value)} placeholder="Nuevo checkpoint..." className="flex-1 p-2 border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-sm" onKeyPress={(e) => e.key === 'Enter' && handleAddSubprocess(e)}/><button type="button" onClick={handleAddSubprocess} className="px-3 py-2 bg-gray-200 dark:bg-slate-600 hover:bg-gray-300 dark:hover:bg-slate-500 rounded text-sm font-medium transition">Añadir</button></div>
                             </div>
-                            <div><label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300 flex justify-between"><span>Progreso General (%)</span><span className="font-bold text-brand-600">{formData.progreso}%</span></label><input type="range" name="progreso" min="0" max="100" value={formData.progreso} onChange={handleChange} disabled={formData.subprocesos.length > 0} className={`w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 ${formData.subprocesos.length > 0 ? 'opacity-50 cursor-not-allowed' : ''}`} /></div>
+                            <div><label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300 flex justify-between"><span>Progreso General (%)</span><span className="font-bold text-brand-600">{formData.progreso}%</span></label><input type="range" name="progreso" min="0" max="100" value={formData.progreso} onChange={handleChange} disabled={formData.subprocesos.length > 0} className={`w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 ${formData.subprocesos.length > 0 ? 'opacity-50 cursor-not-allowed' : ''}`}/></div>
                             <div><label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Descripción</label><textarea name="descripcion" value={formData.descripcion} onChange={handleChange} rows="3" className="w-full p-2 border border-gray-300 dark:border-slate-600 rounded bg-transparent resize-none"></textarea></div>
                             <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-100 dark:border-slate-700 sticky bottom-0 bg-white dark:bg-slate-800">
                                 <button type="button" onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-slate-700 rounded transition">Cancelar</button>
@@ -390,7 +391,7 @@
                             {expanded && (
                                 <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar animate-fade-in">
                                     {task.subprocesos.map((sub, idx) => (
-                                        <label key={idx} className="flex items-start gap-2 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 p-1 rounded transition select-none"><input type="checkbox" checked={sub.done} onChange={() => onToggleSubprocess(task.id, idx)} className="mt-1 w-4 h-4 text-brand-600 rounded border-gray-300 focus:ring-brand-500 dark:border-gray-600 dark:bg-slate-700" /><span className={`${sub.done ? 'line-through text-gray-400' : 'text-gray-700 dark:text-gray-200'}`}>{sub.text}</span></label>
+                                        <label key={idx} className="flex items-start gap-2 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 p-1 rounded transition select-none"><input type="checkbox" checked={sub.done} onChange={() => onToggleSubprocess(task.id, idx)} className="mt-1 w-4 h-4 text-brand-600 rounded border-gray-300 focus:ring-brand-500 dark:border-gray-600 dark:bg-slate-700"/><span className={`${sub.done ? 'line-through text-gray-400' : 'text-gray-700 dark:text-gray-200'}`}>{sub.text}</span></label>
                                     ))}
                                 </div>
                             )}
@@ -440,7 +441,7 @@
             const [editingTask, setEditingTask] = useState(null);
             const [deleteModalOpen, setDeleteModalOpen] = useState(false);
             const [taskToDelete, setTaskToDelete] = useState(null);
-
+            
             const [darkMode, setDarkMode] = useState(false);
             const [filter, setFilter] = useState('Todos');
             const [viewMode, setViewMode] = useState('list');
@@ -451,41 +452,89 @@
             const [lastSyncAt, setLastSyncAt] = useState(null);
             const [autoSync, setAutoSync] = useState(true);
             const [isSyncing, setIsSyncing] = useState(false);
-
+            
             const [isPopupMode, setIsPopupMode] = useState(false);
-            const [dialog, setDialog] = useState(null);
+            const [dialogConnected, setDialogConnected] = useState(false);
             const channelRef = useRef(null);
+            const dialogRef = useRef(null);
+
+            const fileInputRef = useRef(null);
+
+            const broadcastState = useCallback(() => {
+                const payload = { tasks, lastSyncAt, syncStatus };
+                if (channelRef.current) {
+                    channelRef.current.postMessage({
+                        type: MSG_SYNC_STATE,
+                        payload
+                    });
+                }
+                if (dialogRef.current) {
+                    try {
+                        dialogRef.current.messageChild(JSON.stringify({
+                            type: MSG_SYNC_STATE,
+                            payload
+                        }));
+                    } catch (error) {
+                        console.error('No se pudo enviar mensaje al diálogo', error);
+                    }
+                }
+            }, [tasks, lastSyncAt, syncStatus]);
+
+            const handleIncomingMessage = useCallback((message) => {
+                if (!message || !message.type) return;
+                const { type, payload } = message;
+
+                if (type === MSG_DIALOG_READY && !isPopupMode) {
+                    setDialogConnected(true);
+                    broadcastState();
+                } else if (type === MSG_SYNC_STATE) {
+                    // El Panel envió el estado actualizado a la Ventana
+                    setTasks(payload.tasks);
+                    setLastSyncAt(payload.lastSyncAt ? new Date(payload.lastSyncAt) : null);
+                    setSyncStatus(payload.syncStatus);
+                } else if (type === MSG_REQUEST_INIT && !isPopupMode) {
+                    // La Ventana pide el estado inicial
+                    broadcastState();
+                } else if (type === MSG_ACTION_UPDATE && !isPopupMode) {
+                    // La Ventana pide actualizar
+                    handleSaveTask(payload, true); 
+                } else if (type === MSG_ACTION_DELETE && !isPopupMode) {
+                    // La Ventana pide borrar
+                    performDelete(payload, true);
+                }
+            }, [broadcastState, isPopupMode]);
 
             useEffect(() => {
                 const urlParams = new URLSearchParams(window.location.search);
                 const popupMode = urlParams.get('mode') === 'popup';
                 setIsPopupMode(popupMode);
 
-                // Configurar Canal
-                channelRef.current = new BroadcastChannel(CHANNEL_NAME);
-                channelRef.current.onmessage = (event) => {
-                    const { type, payload } = event.data;
+                const supportsDialogMessaging = popupMode && window.Office && Office.context && Office.context.ui && typeof Office.context.ui.messageParent === 'function';
 
-                    if (type === MSG_SYNC_STATE) {
-                        // El Panel envió el estado actualizado a la Ventana
-                        if (popupMode) {
-                            setTasks(payload.tasks);
-                            setLastSyncAt(payload.lastSyncAt ? new Date(payload.lastSyncAt) : null);
-                            setSyncStatus(payload.syncStatus);
-                        }
-                    } else if (type === MSG_REQUEST_INIT && !popupMode) {
-                        // La Ventana pide el estado inicial
-                        broadcastState();
-                    } else if (type === MSG_ACTION_UPDATE && !popupMode) {
-                        // La Ventana pide actualizar
-                        handleSaveTask(payload, true);
-                    } else if (type === MSG_ACTION_DELETE && !popupMode) {
-                        // La Ventana pide borrar
-                        performDelete(payload, true);
-                    }
-                };
+                if (window.BroadcastChannel) {
+                    // Canal de respaldo siempre disponible para evitar perder eventos
+                    channelRef.current = new BroadcastChannel(CHANNEL_NAME);
+                    channelRef.current.onmessage = (event) => {
+                        handleIncomingMessage(event.data);
+                    };
+                }
 
-                if (popupMode) {
+                if (supportsDialogMessaging) {
+                    Office.onReady(() => {
+                        Office.context.ui.addHandlerAsync(Office.EventType.DialogParentMessageReceived, (arg) => {
+                            try {
+                                const message = JSON.parse(arg.message);
+                                handleIncomingMessage(message);
+                            } catch (error) {
+                                console.error('Mensaje de diálogo inválido', error);
+                            }
+                        });
+                        Office.context.ui.messageParent(JSON.stringify({ type: MSG_DIALOG_READY }));
+                        Office.context.ui.messageParent(JSON.stringify({ type: MSG_REQUEST_INIT }));
+                    });
+                }
+
+                if (popupMode && channelRef.current) {
                     channelRef.current.postMessage({ type: MSG_REQUEST_INIT });
                 }
 
@@ -500,24 +549,15 @@
                     });
                 }
 
-                return () => channelRef.current.close();
-            }, []);
+                return () => channelRef.current?.close();
+            }, [handleIncomingMessage]);
 
             useEffect(() => { if (darkMode) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }, [darkMode]);
-
+            
             useEffect(() => {
                 localStorage.setItem('cronograma_tasks', JSON.stringify(tasks));
                 if (!isPopupMode) broadcastState();
-            }, [tasks]);
-
-            const broadcastState = () => {
-                if (channelRef.current) {
-                    channelRef.current.postMessage({
-                        type: MSG_SYNC_STATE,
-                        payload: { tasks, lastSyncAt, syncStatus }
-                    });
-                }
-            };
+            }, [tasks, broadcastState, isPopupMode]);
 
             const addToast = (msg) => {
                 const id = Date.now();
@@ -525,10 +565,14 @@
                 setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
             };
 
-            const handleSaveTask = (taskData) => {
+            const handleSaveTask = (taskData, fromRemote = false) => {
                 if (isPopupMode) {
                     // Modo Popup: Enviar al panel, no guardar directo en Excel
-                    channelRef.current.postMessage({ type: MSG_ACTION_UPDATE, payload: taskData });
+                    if (window.Office && Office.context && Office.context.ui && typeof Office.context.ui.messageParent === 'function') {
+                        Office.context.ui.messageParent(JSON.stringify({ type: MSG_ACTION_UPDATE, payload: taskData }));
+                    } else if (channelRef.current) {
+                        channelRef.current.postMessage({ type: MSG_ACTION_UPDATE, payload: taskData });
+                    }
                     updateLocalState(taskData); // Actualización optimista
                 } else {
                     // Modo Panel: Guardar y notificar
@@ -554,9 +598,13 @@
 
             const confirmDelete = () => {
                 if (!taskToDelete) return;
-
+                
                 if (isPopupMode) {
-                    channelRef.current.postMessage({ type: MSG_ACTION_DELETE, payload: taskToDelete.id });
+                    if (window.Office && Office.context && Office.context.ui && typeof Office.context.ui.messageParent === 'function') {
+                        Office.context.ui.messageParent(JSON.stringify({ type: MSG_ACTION_DELETE, payload: taskToDelete.id }));
+                    } else if (channelRef.current) {
+                        channelRef.current.postMessage({ type: MSG_ACTION_DELETE, payload: taskToDelete.id });
+                    }
                     performDelete(taskToDelete.id);
                 } else {
                     performDelete(taskToDelete.id);
@@ -566,44 +614,64 @@
                 setTaskToDelete(null);
             };
 
-            const performDelete = (id) => {
+            const performDelete = (id, fromRemote = false) => {
                 setTasks(prev => prev.filter(t => t.id !== id));
             };
 
             const openModal = (task = null) => { setEditingTask(task); setModalOpen(true); };
-
+            
             const openConnectedPopup = () => {
                 const url = window.location.href.split('?')[0] + '?mode=popup';
-                if (window.Office?.context?.ui?.displayDialogAsync) {
-                    Office.context.ui.displayDialogAsync(url, { height: 70, width: 70 }, (asyncResult) => {
-                        if (asyncResult.status === Office.AsyncResultStatus.Succeeded) {
-                            const newDialog = asyncResult.value;
-                            setDialog(newDialog);
-                            newDialog.addEventHandler(Office.EventType.DialogEventReceived, () => {
-                                setDialog(null);
-                            });
-                        } else {
-                            addToast('No se pudo abrir el diálogo de Office.');
+
+                if (window.Office && Office.context && Office.context.ui && typeof Office.context.ui.displayDialogAsync === 'function') {
+                    const handleDialogResult = (asyncResult) => {
+                        if (asyncResult.status !== Office.AsyncResultStatus.Succeeded) {
+                            console.error(asyncResult.error);
+                            addToast('No se pudo abrir el diálogo.');
+                            return;
                         }
+
+                        dialogRef.current = asyncResult.value;
+                        dialogRef.current.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => {
+                            try {
+                                const message = JSON.parse(arg.message);
+                                handleIncomingMessage(message);
+                            } catch (error) {
+                                console.error('Mensaje inválido del diálogo', error);
+                            }
+                        });
+                        dialogRef.current.addEventHandler(Office.EventType.DialogEvent, () => {
+                            dialogRef.current = null;
+                            setDialogConnected(false);
+                        });
+                    };
+
+                    Office.context.ui.displayDialogAsync(url, { height: 70, width: 70, displayInIframe: false }, (asyncResult) => {
+                        if (asyncResult.status === Office.AsyncResultStatus.Succeeded) {
+                            handleDialogResult(asyncResult);
+                            return;
+                        }
+                        Office.context.ui.displayDialogAsync(url, { height: 70, width: 70, displayInIframe: true }, handleDialogResult);
                     });
-                } else {
-                    window.open(url, 'CronosRemote', 'width=1000,height=800,menubar=no,toolbar=no,location=no,status=no');
+                    return;
                 }
+
+                window.open(url, 'CronosRemote', 'width=1000,height=800,menubar=no,toolbar=no,location=no,status=no');
             };
 
             const handleToggleSubprocess = (taskId, subprocessIndex) => {
                 const task = tasks.find(t => t.id === taskId);
                 if (!task) return;
-
+                
                 const newSubprocesses = task.subprocesos.map((sub, idx) => idx === subprocessIndex ? { ...sub, done: !sub.done } : sub);
                 const completed = newSubprocesses.filter(s => s.done).length;
                 const newProgress = newSubprocesses.length === 0 ? task.progreso : Math.round((completed / newSubprocesses.length) * 100);
-
+                
                 let newStatus = task.estado;
-                if (newProgress === 100) newStatus = 'Completado';
-                else if (newProgress > 0 && newStatus === 'Pendiente') newStatus = 'En Progreso';
+                if (newProgress === 100) newStatus = 'Completado'; 
+                else if (newProgress > 0 && newStatus === 'Pendiente') newStatus = 'En Progreso'; 
                 else if (newProgress === 0) newStatus = 'Pendiente';
-
+                
                 const updatedTask = { ...task, subprocesos: newSubprocesses, progreso: newProgress, estado: newStatus };
                 handleSaveTask(updatedTask);
             };
@@ -661,7 +729,7 @@
                             await context.sync();
                         }
                         sheet.getRange().clear();
-
+                        
                         const rows = [
                             EXCEL_HEADERS,
                             ...tasks.map(t => [t.id, t.titulo, t.responsable, t.fechaInicio, t.fechaFin, t.progreso, t.estado, t.prioridad, t.descripcion, serializeSubprocesses(t.subprocesos)])
@@ -670,7 +738,7 @@
                         const range = sheet.getRangeByIndexes(0, 0, rows.length, EXCEL_HEADERS.length);
                         range.values = rows;
                         range.format.autofitColumns();
-
+                        
                         await context.sync();
                         setSyncStatus('Guardado en Excel');
                         setLastSyncAt(new Date());
@@ -684,7 +752,7 @@
 
             useEffect(() => {
                 if (!officeReady || !autoSync || isPopupMode || isSyncing) return;
-                const timeout = setTimeout(() => { saveToExcelAddin(); }, 1500);
+                const timeout = setTimeout(() => { saveToExcelAddin(); }, 1500); 
                 return () => clearTimeout(timeout);
             }, [tasks, officeReady, autoSync, isPopupMode]);
 
@@ -694,7 +762,7 @@
             return (
                 <div className="min-h-screen pb-10 bg-gray-50 dark:bg-slate-900">
                     <ToastContainer toasts={toasts} />
-
+                    
                     <header className={`bg-white dark:bg-slate-800 shadow-sm sticky top-0 z-40 border-b border-gray-200 dark:border-slate-700 ${isPopupMode ? 'border-t-4 border-t-purple-500' : 'border-t-4 border-t-brand-500'}`}>
                         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col md:flex-row justify-between items-center gap-4">
                             <div className="flex items-center gap-3 w-full md:w-auto">
@@ -708,16 +776,16 @@
                                     </p>
                                 </div>
                             </div>
-
+                            
                             <div className="flex items-center gap-2 w-full md:w-auto justify-end">
                                 <button onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 transition text-gray-600 dark:text-gray-300">{darkMode ? <Icons.Sun /> : <Icons.Moon />}</button>
-
+                                
                                 {!isPopupMode && (
                                     <button onClick={openConnectedPopup} className="hidden md:inline-flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition" title="Abrir control remoto">
                                         <Icons.ExternalLink size={16} /> Ventana
                                     </button>
                                 )}
-
+                                
                                 <div className="h-6 w-px bg-gray-300 dark:bg-slate-700 mx-1"></div>
 
                                 {!isPopupMode && (
@@ -743,7 +811,7 @@
                             <div className="flex items-center gap-4">
                                 <span className={`flex items-center gap-1.5 ${syncStatus.includes('Error') ? 'text-red-500' : 'text-green-600'}`}>
                                     <span className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-yellow-400 animate-pulse' : 'bg-current'}`}></span>
-                                    {syncStatus || 'Listo'}
+                                    {syncStatus || 'Listo'}{dialogConnected && !isPopupMode ? ' · Ventana conectada' : ''}
                                 </span>
                                 <span>Ult. Sync: {lastSyncLabel}</span>
                             </div>
@@ -771,10 +839,10 @@
                             filteredTasks.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                     {filteredTasks.map(task => (
-                                        <TaskCard
-                                            key={task.id}
-                                            task={task}
-                                            onEdit={openModal}
+                                        <TaskCard 
+                                            key={task.id} 
+                                            task={task} 
+                                            onEdit={openModal} 
                                             onRequestDelete={initiateDelete}
                                             onToggleSubprocess={handleToggleSubprocess}
                                         />
@@ -788,9 +856,9 @@
                         )}
                     </div>
 
-                    <TaskModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onSave={handleSaveTask} taskToEdit={editingTask} />
-
-                    <ConfirmModal
+                    <TaskModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onSave={handleSaveTask} taskToEdit={editingTask}/>
+                    
+                    <ConfirmModal 
                         isOpen={deleteModalOpen}
                         title="¿Eliminar Tarea?"
                         message={`Estás a punto de eliminar "${taskToDelete?.titulo}". Esta acción no se puede deshacer y se borrará de Excel.`}
