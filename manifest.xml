@@ -12,8 +12,8 @@
     <Host Name="Workbook" />
   </Hosts>
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://smiwe94.github.io/CT/index.html" />
+    <SourceLocation DefaultValue="https://smiwe94.github.io/cronostasking/index.html" />
   </DefaultSettings>
   <Permissions>ReadWriteDocument</Permissions>
-  <SupportUrl DefaultValue="https://smiwe94.github.io/CT" />
+  <SupportUrl DefaultValue="https://smiwe94.github.io/cronostasking" />
 </OfficeApp>
