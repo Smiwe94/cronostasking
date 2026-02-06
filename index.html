@@ -768,10 +768,14 @@
 
             useEffect(() => {
                 if (!isPopupMode || !channelRef.current) return;
-                const interval = setInterval(() => {
-                    channelRef.current.postMessage({ type: MSG_REQUEST_INIT });
-                }, 3000);
-                return () => clearInterval(interval);
+                const requestSync = () => channelRef.current?.postMessage({ type: MSG_REQUEST_INIT });
+                requestSync();
+                window.addEventListener('focus', requestSync);
+                document.addEventListener('visibilitychange', requestSync);
+                return () => {
+                    window.removeEventListener('focus', requestSync);
+                    document.removeEventListener('visibilitychange', requestSync);
+                };
             }, [isPopupMode]);
 
             const filteredTasks = tasks.filter(t => filter === 'Todos' || t.estado === filter);
