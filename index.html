@@ -433,10 +433,7 @@
 
         // --- Componente Principal ---
         const App = () => {
-            const [tasks, setTasks] = useState(() => {
-                const saved = localStorage.getItem('cronograma_tasks');
-                return saved ? JSON.parse(saved) : [{ id: 1, titulo: 'Bienvenido', responsable: 'Sistema', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: new Date().toISOString().split('T')[0], progreso: 100, estado: 'Completado', prioridad: 'Alta', descripcion: 'Configuración inicial lista', subprocesos: [] }];
-            });
+            const [tasks, setTasks] = useState([]);
             const [modalOpen, setModalOpen] = useState(false);
             const [editingTask, setEditingTask] = useState(null);
             const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -553,7 +550,6 @@
             useEffect(() => { if (darkMode) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }, [darkMode]);
             
             useEffect(() => {
-                localStorage.setItem('cronograma_tasks', JSON.stringify(tasks));
                 if (!isPopupMode) broadcastState();
             }, [tasks, broadcastState, isPopupMode]);
 
@@ -571,11 +567,11 @@
                     } else if (channelRef.current) {
                         channelRef.current.postMessage({ type: MSG_ACTION_UPDATE, payload: taskData });
                     }
-                    updateLocalState(taskData); // Actualización optimista
                 } else {
-                    // Modo Panel: Guardar y notificar
-                    updateLocalState(taskData);
+                    // Modo Panel: Guardar en Excel y notificar
+                    const updatedTasks = updateLocalState(taskData);
                     addToast(taskData.id === editingTask?.id ? "Tarea actualizada" : "Tarea creada");
+                    saveToExcelAddin(updatedTasks);
                 }
             };
 
@@ -587,6 +583,7 @@
                     newTasks = [...tasks, taskData];
                 }
                 setTasks(newTasks);
+                return newTasks;
             };
 
             const initiateDelete = (task) => {
@@ -613,7 +610,11 @@
             };
 
             const performDelete = (id, fromRemote = false) => {
-                setTasks(prev => prev.filter(t => t.id !== id));
+                const updatedTasks = tasks.filter(t => t.id !== id);
+                setTasks(updatedTasks);
+                if (!isPopupMode) {
+                    saveToExcelAddin(updatedTasks);
+                }
             };
 
             const openModal = (task = null) => { setEditingTask(task); setModalOpen(true); };
@@ -674,10 +675,10 @@
                 handleSaveTask(updatedTask);
             };
 
-            const loadFromExcelAddin = async () => {
+            const loadFromExcelAddin = async ({ silent = false } = {}) => {
                 if (!officeReady || isPopupMode) return;
                 setIsSyncing(true);
-                setSyncStatus('Leyendo Excel...');
+                if (!silent) setSyncStatus('Leyendo Excel...');
                 try {
                     await Excel.run(async (context) => {
                         let sheet = context.workbook.worksheets.getItemOrNullObject('Cronograma');
@@ -704,9 +705,9 @@
                             .map(r => mapRowToTask(r, headerMap));
 
                         setTasks(parsedTasks);
-                        setSyncStatus('Sincronizado');
+                        if (!silent) setSyncStatus('Sincronizado');
                         setLastSyncAt(new Date());
-                        addToast("Datos cargados de Excel");
+                        if (!silent) addToast("Datos cargados de Excel");
                     });
                 } catch (error) {
                     console.error(error);
@@ -714,7 +715,7 @@
                 } finally { setIsSyncing(false); }
             };
 
-            const saveToExcelAddin = async () => {
+            const saveToExcelAddin = async (tasksOverride = null) => {
                 if (!officeReady || isPopupMode) return;
                 setIsSyncing(true);
                 setSyncStatus('Guardando...');
@@ -728,9 +729,10 @@
                         }
                         sheet.getRange().clear();
                         
+                        const sourceTasks = tasksOverride || tasks;
                         const rows = [
                             EXCEL_HEADERS,
-                            ...tasks.map(t => [t.id, t.titulo, t.responsable, t.fechaInicio, t.fechaFin, t.progreso, t.estado, t.prioridad, t.descripcion, serializeSubprocesses(t.subprocesos)])
+                            ...sourceTasks.map(t => [t.id, t.titulo, t.responsable, t.fechaInicio, t.fechaFin, t.progreso, t.estado, t.prioridad, t.descripcion, serializeSubprocesses(t.subprocesos)])
                         ];
 
                         const range = sheet.getRangeByIndexes(0, 0, rows.length, EXCEL_HEADERS.length);
@@ -753,6 +755,15 @@
                 const timeout = setTimeout(() => { saveToExcelAddin(); }, 1500); 
                 return () => clearTimeout(timeout);
             }, [tasks, officeReady, autoSync, isPopupMode]);
+
+            useEffect(() => {
+                if (!officeReady || isPopupMode) return;
+                loadFromExcelAddin();
+                const interval = setInterval(() => {
+                    if (!isSyncing) loadFromExcelAddin({ silent: true });
+                }, 10000);
+                return () => clearInterval(interval);
+            }, [officeReady, isPopupMode, isSyncing]);
 
             const filteredTasks = tasks.filter(t => filter === 'Todos' || t.estado === filter);
             const lastSyncLabel = lastSyncAt ? lastSyncAt.toLocaleTimeString() : '--:--';
