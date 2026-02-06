@@ -692,7 +692,9 @@
                         await context.sync();
 
                         if (range.isNullObject || range.rowCount < 2) {
-                            setSyncStatus('Hoja vacía o nueva.');
+                            setTasks([]);
+                            if (!silent) setSyncStatus('Hoja vacía o nueva.');
+                            setLastSyncAt(new Date());
                             return;
                         }
 
