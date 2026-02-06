@@ -511,13 +511,11 @@
 
                 const supportsDialogMessaging = popupMode && window.Office && Office.context && Office.context.ui && typeof Office.context.ui.messageParent === 'function';
 
-                if (window.BroadcastChannel) {
-                    // Canal de respaldo siempre disponible para evitar perder eventos
-                    channelRef.current = new BroadcastChannel(CHANNEL_NAME);
-                    channelRef.current.onmessage = (event) => {
-                        handleIncomingMessage(event.data);
-                    };
-                }
+                // Configurar Canal para comunicación ventana <-> panel (fallback permanente)
+                channelRef.current = new BroadcastChannel(CHANNEL_NAME);
+                channelRef.current.onmessage = (event) => {
+                    handleIncomingMessage(event.data);
+                };
 
                 if (supportsDialogMessaging) {
                     Office.onReady(() => {
@@ -531,10 +529,11 @@
                         });
                         Office.context.ui.messageParent(JSON.stringify({ type: MSG_DIALOG_READY }));
                         Office.context.ui.messageParent(JSON.stringify({ type: MSG_REQUEST_INIT }));
+                        if (channelRef.current) {
+                            channelRef.current.postMessage({ type: MSG_REQUEST_INIT });
+                        }
                     });
-                }
-
-                if (popupMode && channelRef.current) {
+                } else if (popupMode && channelRef.current) {
                     channelRef.current.postMessage({ type: MSG_REQUEST_INIT });
                 }
 
