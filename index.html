@@ -432,11 +432,20 @@
         });
 
         // --- Componente Principal ---
-        const App = () => {
-            const [tasks, setTasks] = useState(() => {
+        const DEFAULT_TASKS = [{ id: 1, titulo: 'Bienvenido', responsable: 'Sistema', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: new Date().toISOString().split('T')[0], progreso: 100, estado: 'Completado', prioridad: 'Alta', descripcion: 'Configuración inicial lista', subprocesos: [] }];
+
+        const loadLocalTasks = () => {
+            try {
                 const saved = localStorage.getItem('cronograma_tasks');
-                return saved ? JSON.parse(saved) : [{ id: 1, titulo: 'Bienvenido', responsable: 'Sistema', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: new Date().toISOString().split('T')[0], progreso: 100, estado: 'Completado', prioridad: 'Alta', descripcion: 'Configuración inicial lista', subprocesos: [] }];
-            });
+                return saved ? JSON.parse(saved) : DEFAULT_TASKS;
+            } catch (error) {
+                console.warn('No se pudo leer localStorage', error);
+                return DEFAULT_TASKS;
+            }
+        };
+
+        const App = () => {
+            const [tasks, setTasks] = useState(loadLocalTasks);
             const [modalOpen, setModalOpen] = useState(false);
             const [editingTask, setEditingTask] = useState(null);
             const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -556,7 +565,11 @@
             
             useEffect(() => {
                 if (!officeReady) {
-                    localStorage.setItem('cronograma_tasks', JSON.stringify(tasks));
+                    try {
+                        localStorage.setItem('cronograma_tasks', JSON.stringify(tasks));
+                    } catch (error) {
+                        console.warn('No se pudo guardar en localStorage', error);
+                    }
                 }
                 if (!isPopupMode) broadcastState();
             }, [tasks, broadcastState, isPopupMode, officeReady]);
