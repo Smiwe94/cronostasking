@@ -452,7 +452,6 @@
             const [lastSyncAt, setLastSyncAt] = useState(null);
             const [autoSync, setAutoSync] = useState(true);
             const [isSyncing, setIsSyncing] = useState(false);
-            const [isPulling, setIsPulling] = useState(false);
             
             const [isPopupMode, setIsPopupMode] = useState(false);
             const [dialogConnected, setDialogConnected] = useState(false);
@@ -682,7 +681,6 @@
             const loadFromExcelAddin = async () => {
                 if (!officeReady || isPopupMode) return;
                 setIsSyncing(true);
-                setIsPulling(true);
                 setSyncStatus('Leyendo Excel...');
                 try {
                     await Excel.run(async (context) => {
@@ -717,10 +715,7 @@
                 } catch (error) {
                     console.error(error);
                     setSyncStatus('Error de lectura');
-                } finally {
-                    setIsSyncing(false);
-                    setIsPulling(false);
-                }
+                } finally { setIsSyncing(false); }
             };
 
             const saveToExcelAddin = async () => {
@@ -758,21 +753,21 @@
             };
 
             useEffect(() => {
-                if (!officeReady || !autoSync || isPopupMode || isSyncing || isPulling) return;
+                if (!officeReady || !autoSync || isPopupMode || isSyncing) return;
                 const timeout = setTimeout(() => { saveToExcelAddin(); }, 1500); 
                 return () => clearTimeout(timeout);
-            }, [tasks, officeReady, autoSync, isPopupMode, isSyncing, isPulling]);
+            }, [tasks, officeReady, autoSync, isPopupMode]);
 
             useEffect(() => {
                 if (!officeReady || isPopupMode) return;
                 loadFromExcelAddin();
                 const interval = setInterval(() => {
-                    if (!isSyncing && !isPulling) {
+                    if (!isSyncing) {
                         loadFromExcelAddin();
                     }
-                }, 10000);
+                }, 8000);
                 return () => clearInterval(interval);
-            }, [officeReady, isPopupMode, isSyncing, isPulling]);
+            }, [officeReady, isPopupMode, isSyncing]);
 
             const filteredTasks = tasks.filter(t => filter === 'Todos' || t.estado === filter);
             const lastSyncLabel = lastSyncAt ? lastSyncAt.toLocaleTimeString() : '--:--';
