@@ -432,20 +432,11 @@
         });
 
         // --- Componente Principal ---
-        const DEFAULT_TASKS = [{ id: 1, titulo: 'Bienvenido', responsable: 'Sistema', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: new Date().toISOString().split('T')[0], progreso: 100, estado: 'Completado', prioridad: 'Alta', descripcion: 'Configuración inicial lista', subprocesos: [] }];
-
-        const loadLocalTasks = () => {
-            try {
-                const saved = localStorage.getItem('cronograma_tasks');
-                return saved ? JSON.parse(saved) : DEFAULT_TASKS;
-            } catch (error) {
-                console.warn('No se pudo leer localStorage', error);
-                return DEFAULT_TASKS;
-            }
-        };
-
         const App = () => {
-            const [tasks, setTasks] = useState(loadLocalTasks);
+            const [tasks, setTasks] = useState(() => {
+                const saved = localStorage.getItem('cronograma_tasks');
+                return saved ? JSON.parse(saved) : [{ id: 1, titulo: 'Bienvenido', responsable: 'Sistema', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: new Date().toISOString().split('T')[0], progreso: 100, estado: 'Completado', prioridad: 'Alta', descripcion: 'Configuración inicial lista', subprocesos: [] }];
+            });
             const [modalOpen, setModalOpen] = useState(false);
             const [editingTask, setEditingTask] = useState(null);
             const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -520,8 +511,8 @@
 
                 const supportsDialogMessaging = popupMode && window.Office && Office.context && Office.context.ui && typeof Office.context.ui.messageParent === 'function';
 
-                if (window.BroadcastChannel) {
-                    // Canal de respaldo siempre disponible para evitar perder eventos
+                if (!popupMode || !supportsDialogMessaging) {
+                    // Configurar Canal para comunicación ventana <-> panel
                     channelRef.current = new BroadcastChannel(CHANNEL_NAME);
                     channelRef.current.onmessage = (event) => {
                         handleIncomingMessage(event.data);
@@ -541,9 +532,7 @@
                         Office.context.ui.messageParent(JSON.stringify({ type: MSG_DIALOG_READY }));
                         Office.context.ui.messageParent(JSON.stringify({ type: MSG_REQUEST_INIT }));
                     });
-                }
-
-                if (popupMode && channelRef.current) {
+                } else if (popupMode && channelRef.current) {
                     channelRef.current.postMessage({ type: MSG_REQUEST_INIT });
                 }
 
@@ -564,15 +553,9 @@
             useEffect(() => { if (darkMode) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }, [darkMode]);
             
             useEffect(() => {
-                if (!officeReady) {
-                    try {
-                        localStorage.setItem('cronograma_tasks', JSON.stringify(tasks));
-                    } catch (error) {
-                        console.warn('No se pudo guardar en localStorage', error);
-                    }
-                }
+                localStorage.setItem('cronograma_tasks', JSON.stringify(tasks));
                 if (!isPopupMode) broadcastState();
-            }, [tasks, broadcastState, isPopupMode, officeReady]);
+            }, [tasks, broadcastState, isPopupMode]);
 
             const addToast = (msg) => {
                 const id = Date.now();
@@ -770,17 +753,6 @@
                 const timeout = setTimeout(() => { saveToExcelAddin(); }, 1500); 
                 return () => clearTimeout(timeout);
             }, [tasks, officeReady, autoSync, isPopupMode]);
-
-            useEffect(() => {
-                if (!officeReady || isPopupMode) return;
-                loadFromExcelAddin();
-                const interval = setInterval(() => {
-                    if (!isSyncing) {
-                        loadFromExcelAddin();
-                    }
-                }, 8000);
-                return () => clearInterval(interval);
-            }, [officeReady, isPopupMode, isSyncing]);
 
             const filteredTasks = tasks.filter(t => filter === 'Todos' || t.estado === filter);
             const lastSyncLabel = lastSyncAt ? lastSyncAt.toLocaleTimeString() : '--:--';
