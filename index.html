@@ -508,13 +508,11 @@
 
                 const supportsDialogMessaging = popupMode && window.Office && Office.context && Office.context.ui && typeof Office.context.ui.messageParent === 'function';
 
-                if (!popupMode || !supportsDialogMessaging) {
-                    // Configurar Canal para comunicación ventana <-> panel
-                    channelRef.current = new BroadcastChannel(CHANNEL_NAME);
-                    channelRef.current.onmessage = (event) => {
-                        handleIncomingMessage(event.data);
-                    };
-                }
+                // Configurar Canal para comunicación ventana <-> panel (siempre)
+                channelRef.current = new BroadcastChannel(CHANNEL_NAME);
+                channelRef.current.onmessage = (event) => {
+                    handleIncomingMessage(event.data);
+                };
 
                 if (supportsDialogMessaging) {
                     Office.onReady(() => {
@@ -567,6 +565,7 @@
                     } else if (channelRef.current) {
                         channelRef.current.postMessage({ type: MSG_ACTION_UPDATE, payload: taskData });
                     }
+                    updateLocalState(taskData);
                 } else {
                     // Modo Panel: Guardar en Excel y notificar
                     const updatedTasks = updateLocalState(taskData);
@@ -763,9 +762,17 @@
                 loadFromExcelAddin();
                 const interval = setInterval(() => {
                     if (!isSyncing) loadFromExcelAddin({ silent: true });
-                }, 10000);
+                }, 3000);
                 return () => clearInterval(interval);
             }, [officeReady, isPopupMode, isSyncing]);
+
+            useEffect(() => {
+                if (!isPopupMode || !channelRef.current) return;
+                const interval = setInterval(() => {
+                    channelRef.current.postMessage({ type: MSG_REQUEST_INIT });
+                }, 3000);
+                return () => clearInterval(interval);
+            }, [isPopupMode]);
 
             const filteredTasks = tasks.filter(t => filter === 'Todos' || t.estado === filter);
             const lastSyncLabel = lastSyncAt ? lastSyncAt.toLocaleTimeString() : '--:--';
