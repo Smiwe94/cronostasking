@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cronograma de Trabajo</title>
+    <title>Cronograma de Trabajo | SPRC</title>
     
     <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -433,7 +433,10 @@
 
         // --- Componente Principal ---
         const App = () => {
-            const [tasks, setTasks] = useState([]);
+            const [tasks, setTasks] = useState(() => {
+                const saved = localStorage.getItem('cronograma_tasks');
+                return saved ? JSON.parse(saved) : [{ id: 1, titulo: 'Bienvenido', responsable: 'Sistema', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: new Date().toISOString().split('T')[0], progreso: 100, estado: 'Completado', prioridad: 'Alta', descripcion: 'Configuración inicial lista', subprocesos: [] }];
+            });
             const [modalOpen, setModalOpen] = useState(false);
             const [editingTask, setEditingTask] = useState(null);
             const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -507,12 +510,16 @@
                 setIsPopupMode(popupMode);
 
                 const supportsDialogMessaging = popupMode && window.Office && Office.context && Office.context.ui && typeof Office.context.ui.messageParent === 'function';
+                let channelInitialized = false;
 
-                // Configurar Canal para comunicación ventana <-> panel (siempre)
-                channelRef.current = new BroadcastChannel(CHANNEL_NAME);
-                channelRef.current.onmessage = (event) => {
-                    handleIncomingMessage(event.data);
-                };
+                if (typeof BroadcastChannel !== 'undefined') {
+                    // Configurar Canal para comunicación ventana <-> panel (fallback seguro)
+                    channelRef.current = new BroadcastChannel(CHANNEL_NAME);
+                    channelRef.current.onmessage = (event) => {
+                        handleIncomingMessage(event.data);
+                    };
+                    channelInitialized = true;
+                }
 
                 if (supportsDialogMessaging) {
                     Office.onReady(() => {
@@ -530,6 +537,18 @@
                 } else if (popupMode && channelRef.current) {
                     channelRef.current.postMessage({ type: MSG_REQUEST_INIT });
                 }
+                
+                let syncIntervalId = null;
+                if (popupMode && (supportsDialogMessaging || channelInitialized)) {
+                    syncIntervalId = setInterval(() => {
+                        if (supportsDialogMessaging) {
+                            Office.context.ui.messageParent(JSON.stringify({ type: MSG_REQUEST_INIT }));
+                        }
+                        if (channelRef.current) {
+                            channelRef.current.postMessage({ type: MSG_REQUEST_INIT });
+                        }
+                    }, 5000);
+                }
 
                 if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) setDarkMode(true);
 
@@ -542,12 +561,18 @@
                     });
                 }
 
-                return () => channelRef.current?.close();
+                return () => {
+                    channelRef.current?.close();
+                    if (syncIntervalId) {
+                        clearInterval(syncIntervalId);
+                    }
+                };
             }, [handleIncomingMessage]);
 
             useEffect(() => { if (darkMode) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }, [darkMode]);
             
             useEffect(() => {
+                localStorage.setItem('cronograma_tasks', JSON.stringify(tasks));
                 if (!isPopupMode) broadcastState();
             }, [tasks, broadcastState, isPopupMode]);
 
@@ -565,12 +590,11 @@
                     } else if (channelRef.current) {
                         channelRef.current.postMessage({ type: MSG_ACTION_UPDATE, payload: taskData });
                     }
-                    updateLocalState(taskData);
+                    updateLocalState(taskData); // Actualización optimista
                 } else {
-                    // Modo Panel: Guardar en Excel y notificar
-                    const updatedTasks = updateLocalState(taskData);
+                    // Modo Panel: Guardar y notificar
+                    updateLocalState(taskData);
                     addToast(taskData.id === editingTask?.id ? "Tarea actualizada" : "Tarea creada");
-                    saveToExcelAddin(updatedTasks);
                 }
             };
 
@@ -582,7 +606,6 @@
                     newTasks = [...tasks, taskData];
                 }
                 setTasks(newTasks);
-                return newTasks;
             };
 
             const initiateDelete = (task) => {
@@ -609,11 +632,7 @@
             };
 
             const performDelete = (id, fromRemote = false) => {
-                const updatedTasks = tasks.filter(t => t.id !== id);
-                setTasks(updatedTasks);
-                if (!isPopupMode) {
-                    saveToExcelAddin(updatedTasks);
-                }
+                setTasks(prev => prev.filter(t => t.id !== id));
             };
 
             const openModal = (task = null) => { setEditingTask(task); setModalOpen(true); };
@@ -674,10 +693,10 @@
                 handleSaveTask(updatedTask);
             };
 
-            const loadFromExcelAddin = async ({ silent = false } = {}) => {
+            const loadFromExcelAddin = async () => {
                 if (!officeReady || isPopupMode) return;
                 setIsSyncing(true);
-                if (!silent) setSyncStatus('Leyendo Excel...');
+                setSyncStatus('Leyendo Excel...');
                 try {
                     await Excel.run(async (context) => {
                         let sheet = context.workbook.worksheets.getItemOrNullObject('Cronograma');
@@ -691,9 +710,7 @@
                         await context.sync();
 
                         if (range.isNullObject || range.rowCount < 2) {
-                            setTasks([]);
-                            if (!silent) setSyncStatus('Hoja vacía o nueva.');
-                            setLastSyncAt(new Date());
+                            setSyncStatus('Hoja vacía o nueva.');
                             return;
                         }
 
@@ -706,9 +723,9 @@
                             .map(r => mapRowToTask(r, headerMap));
 
                         setTasks(parsedTasks);
-                        if (!silent) setSyncStatus('Sincronizado');
+                        setSyncStatus('Sincronizado');
                         setLastSyncAt(new Date());
-                        if (!silent) addToast("Datos cargados de Excel");
+                        addToast("Datos cargados de Excel");
                     });
                 } catch (error) {
                     console.error(error);
@@ -716,7 +733,7 @@
                 } finally { setIsSyncing(false); }
             };
 
-            const saveToExcelAddin = async (tasksOverride = null) => {
+            const saveToExcelAddin = async () => {
                 if (!officeReady || isPopupMode) return;
                 setIsSyncing(true);
                 setSyncStatus('Guardando...');
@@ -730,10 +747,9 @@
                         }
                         sheet.getRange().clear();
                         
-                        const sourceTasks = tasksOverride || tasks;
                         const rows = [
                             EXCEL_HEADERS,
-                            ...sourceTasks.map(t => [t.id, t.titulo, t.responsable, t.fechaInicio, t.fechaFin, t.progreso, t.estado, t.prioridad, t.descripcion, serializeSubprocesses(t.subprocesos)])
+                            ...tasks.map(t => [t.id, t.titulo, t.responsable, t.fechaInicio, t.fechaFin, t.progreso, t.estado, t.prioridad, t.descripcion, serializeSubprocesses(t.subprocesos)])
                         ];
 
                         const range = sheet.getRangeByIndexes(0, 0, rows.length, EXCEL_HEADERS.length);
@@ -757,27 +773,6 @@
                 return () => clearTimeout(timeout);
             }, [tasks, officeReady, autoSync, isPopupMode]);
 
-            useEffect(() => {
-                if (!officeReady || isPopupMode) return;
-                loadFromExcelAddin();
-                const interval = setInterval(() => {
-                    if (!isSyncing) loadFromExcelAddin({ silent: true });
-                }, 3000);
-                return () => clearInterval(interval);
-            }, [officeReady, isPopupMode, isSyncing]);
-
-            useEffect(() => {
-                if (!isPopupMode || !channelRef.current) return;
-                const requestSync = () => channelRef.current?.postMessage({ type: MSG_REQUEST_INIT });
-                requestSync();
-                window.addEventListener('focus', requestSync);
-                document.addEventListener('visibilitychange', requestSync);
-                return () => {
-                    window.removeEventListener('focus', requestSync);
-                    document.removeEventListener('visibilitychange', requestSync);
-                };
-            }, [isPopupMode]);
-
             const filteredTasks = tasks.filter(t => filter === 'Todos' || t.estado === filter);
             const lastSyncLabel = lastSyncAt ? lastSyncAt.toLocaleTimeString() : '--:--';
 
@@ -792,7 +787,7 @@
                                     {isPopupMode ? <Icons.Monitor /> : <Icons.CheckSquare />}
                                 </div>
                                 <div>
-                                    <h1 className="text-lg font-bold text-gray-800 dark:text-white leading-tight">Cronograma de Trabajo</h1>
+                                    <h1 className="text-lg font-bold text-gray-800 dark:text-white leading-tight">Cronograma de Trabajo | SPRC</h1>
                                     <p className="text-xs text-gray-500 dark:text-gray-400">
                                         {isPopupMode ? 'Modo Remoto (Controlando Excel)' : officeReady ? 'Conectado a Excel Online' : 'Modo Local'}
                                     </p>
